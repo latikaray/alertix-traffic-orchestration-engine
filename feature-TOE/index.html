@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Orchestration Engine</title>
+    
+    <!-- Leaflet CSS for Map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --panel-bg: #111827;
+            --border-color: #1f2937;
+            --text-main: #e2e8f0;
+            --text-muted: #94a3b8;
+            --neon-green: #39ff14;
+            --danger-red: #ff4d4d;
+            --warning-yellow: #ffcc00;
+            --hud-cyan: #00e5ff;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Consolas', 'Courier New', monospace;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Full Screen Map */
+        #map {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #0d111a;
+            z-index: 1;
+        }
+
+        /* Overlays */
+        .status-overlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(17, 24, 39, 0.85);
+            padding: 15px 20px;
+            border-radius: 8px;
+            backdrop-filter: blur(4px);
+            border: 1px solid var(--border-color);
+            z-index: 1000;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5);
+        }
+
+        .controls-overlay {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            gap: 15px;
+        }
+
+        button {
+            background: rgba(17, 24, 39, 0.85);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            padding: 10px 20px;
+            font-size: 1rem;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(4px);
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5);
+        }
+
+        button:hover {
+            background: rgba(57, 255, 20, 0.1);
+            border-color: var(--neon-green);
+            color: var(--neon-green);
+        }
+
+        #startBtn {
+            background: rgba(57, 255, 20, 0.1);
+            color: var(--neon-green);
+            border: 1px solid var(--neon-green);
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        #startBtn:hover {
+            background: var(--neon-green);
+            color: #000;
+            box-shadow: 0 0 20px rgba(57, 255, 20, 0.6);
+        }
+
+        #startBtn:disabled {
+            background: #333;
+            color: #666;
+            border-color: #444;
+            box-shadow: none;
+            cursor: not-allowed;
+        }
+
+        /* Custom Leaflet Markers */
+        .amb-icon-container {
+            width: 40px;
+            height: 20px;
+            background: #fff;
+            border-radius: 4px;
+            border-top-right-radius: 12px;
+            position: relative;
+            box-shadow: 0 0 15px rgba(255,255,255,0.5);
+            transition: transform 1s linear;
+        }
+        
+        .amb-cross {
+            position: absolute;
+            top: 2px;
+            left: 10px;
+            color: var(--danger-red);
+            font-weight: 900;
+            font-size: 16px;
+            line-height: 1;
+        }
+
+        .siren {
+            position: absolute;
+            top: -5px;
+            left: 16px;
+            width: 8px;
+            height: 5px;
+            background: red;
+            border-radius: 2px 2px 0 0;
+            animation: flashSiren 0.5s infinite alternate;
+        }
+
+        @keyframes flashSiren {
+            0% { background: red; box-shadow: 0 -5px 10px red; }
+            100% { background: blue; box-shadow: 0 -5px 10px blue; }
+        }
+
+        .signal-icon-container {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--danger-red);
+            border: 3px solid #fff;
+            box-shadow: 0 0 10px rgba(255, 77, 77, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        .signal-icon-container.yellow {
+            background: var(--warning-yellow);
+            border-color: #fff;
+            box-shadow: 0 0 15px var(--warning-yellow), 0 0 30px var(--warning-yellow);
+        }
+
+        .signal-icon-container.green {
+            background: var(--neon-green);
+            border-color: #fff;
+            box-shadow: 0 0 15px var(--neon-green), 0 0 30px var(--neon-green);
+        }
+
+        .signal-label-popup {
+            background: rgba(0,0,0,0.8);
+            color: #fff;
+            border: 1px solid #444;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            margin-top: -30px;
+            margin-left: 10px;
+        }
+
+        #driver-alert {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 77, 77, 0.9);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 1.5rem;
+            font-weight: bold;
+            border: 2px solid #fff;
+            box-shadow: 0 0 30px rgba(255, 77, 77, 0.8);
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            text-align: center;
+        }
+        
+        .alert-anim { animation: pulseAlert 0.5s infinite alternate; }
+        @keyframes pulseAlert {
+            from { transform: translate(-50%, -50%) scale(1); }
+            to { transform: translate(-50%, -50%) scale(1.05); }
+        }
+
+        /* Logs Area Overlay */
+        .logs-panel {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 450px;
+            height: 300px;
+            background: rgba(17, 24, 39, 0.95);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            display: none; /* Hidden by default */
+            flex-direction: column;
+            z-index: 1000;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px);
+        }
+
+        .panel-title {
+            font-size: 1rem;
+            color: var(--text-muted);
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .close-btn {
+            cursor: pointer;
+            color: var(--danger-red);
+            font-weight: bold;
+            font-size: 1.2rem;
+            transition: color 0.2s;
+        }
+        
+        .close-btn:hover {
+            color: #fff;
+        }
+
+        #logsContainer {
+            flex: 1; overflow-y: auto; background: #000;
+            border-radius: 5px; padding: 10px; border: 1px solid #333;
+            font-size: 0.9rem; line-height: 1.5;
+        }
+        #logsContainer::-webkit-scrollbar { width: 8px; }
+        #logsContainer::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+        .log-entry { margin-bottom: 5px; border-bottom: 1px dashed #222; padding-bottom: 5px; }
+        .log-time { color: var(--hud-cyan); margin-right: 10px; }
+        .log-info { color: var(--text-main); }
+        .log-success { color: var(--neon-green); }
+        .log-warn { color: var(--warning-yellow); }
+        .log-err { color: var(--danger-red); }
+
+    </style>
+</head>
+<body>
+
+    <!-- Full Screen Map -->
+    <div id="map"></div>
+
+    <!-- Top Left Status -->
+    <div class="status-overlay">
+        <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 5px; text-transform: uppercase;">Live Route Monitoring (Pune)</div>
+        <div id="route-status" style="color: var(--warning-yellow); font-weight: bold; font-size: 1.1rem;">AWAITING AI ANALYSIS</div>
+    </div>
+
+    <!-- Top Right Controls -->
+    <div class="controls-overlay">
+        <button id="toggleMapStyleBtn" onclick="toggleMapStyle()">Dark Map</button>
+        <button id="toggleLogsBtn" onclick="toggleLogs()">Real-Time Updates</button>
+        <button id="startBtn" onclick="startEmergencyWorkflow()">Initialize AI & Start</button>
+    </div>
+
+    <!-- Driver Alert -->
+    <div id="driver-alert">🚑 Approaching Signal – Move LEFT</div>
+
+    <!-- Logs Panel Overlay -->
+    <div class="logs-panel" id="logsPanel">
+        <div class="panel-title">
+            <span>System Event Log & AI Output</span>
+            <span class="close-btn" onclick="toggleLogs()">✖</span>
+        </div>
+        <div id="logsContainer"></div>
+    </div>
+
+    <!-- Siren Audio (Insert your file path in the src attribute below) -->
+    <audio id="sirenAudio" loop>
+        <source src="siren.mp3" type="audio/mpeg">
+    </audio>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // --- UI Interactions ---
+        function toggleMapStyle() {
+            isDarkMode = !isDarkMode;
+            map.removeLayer(currentTileLayer);
+            const btn = document.getElementById('toggleMapStyleBtn');
+            
+            if (isDarkMode) {
+                currentTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                    attribution: '© OpenStreetMap contributors, © CARTO',
+                    maxZoom: 19
+                }).addTo(map);
+                btn.innerText = "Light Map";
+                btn.style.background = 'rgba(0, 229, 255, 0.2)';
+                btn.style.borderColor = 'var(--hud-cyan)';
+                btn.style.color = 'var(--hud-cyan)';
+            } else {
+                currentTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors',
+                    maxZoom: 19
+                }).addTo(map);
+                btn.innerText = "Dark Map";
+                btn.style.background = 'rgba(17, 24, 39, 0.85)';
+                btn.style.borderColor = 'var(--border-color)';
+                btn.style.color = 'var(--text-main)';
+            }
+            currentTileLayer.bringToBack(); // Keep map tiles behind the routes and markers
+        }
+
+        function toggleLogs() {
+            const panel = document.getElementById('logsPanel');
+            const btn = document.getElementById('toggleLogsBtn');
+            if (panel.style.display === 'none' || panel.style.display === '') {
+                panel.style.display = 'flex';
+                btn.style.background = 'rgba(0, 229, 255, 0.2)';
+                btn.style.borderColor = 'var(--hud-cyan)';
+                btn.style.color = 'var(--hud-cyan)';
+                
+                // Auto-scroll to bottom when opened
+                const logsContainer = document.getElementById('logsContainer');
+                logsContainer.scrollTop = logsContainer.scrollHeight;
+            } else {
+                panel.style.display = 'none';
+                btn.style.background = 'rgba(17, 24, 39, 0.85)';
+                btn.style.borderColor = 'var(--border-color)';
+                btn.style.color = 'var(--text-main)';
+            }
+        }
+
+        // --- Gemini API Setup ---
+        const apiKey = ""; // Injected by execution environment
+        
+        // --- Map Setup & Data ---
+        let map;
+        let currentTileLayer;
+        let isDarkMode = false;
+        let ambMarker;
+        let routeLine1, routeLine2, routeLine3;
+        let activeRouteLine;
+        
+        // Real-world locations in Pune: Ruby Hall Clinic (Hospital) to Kalyani Nagar (Victim)
+        const hospitalCoord = { lat: 18.5284, lng: 73.8739 }; 
+        const victimCoord = { lat: 18.5520, lng: 73.9100 };   
+
+        // Route 1: Shortest but Heavy Traffic (Red)
+        const route1Coords = [
+            hospitalCoord,
+            { lat: 18.5332, lng: 73.8781 }, // Bund Garden
+            { lat: 18.5398, lng: 73.8860 }, // Yerawada
+            { lat: 18.5455, lng: 73.8994 }, // Nagar Rd
+            victimCoord
+        ];
+
+        // Route 2: Moderate Traffic, 2 mins longer, Selected (Yellow)
+        const route2Coords = [
+            hospitalCoord,
+            { lat: 18.5295, lng: 73.8835 }, // S1: Mangaldas Rd
+            { lat: 18.5365, lng: 73.8932 }, // S2: North Main Rd
+            { lat: 18.5421, lng: 73.9025 }, // S3: KP Annexe
+            { lat: 18.5480, lng: 73.9055 }, // S4: Kalyani Nagar Bridge
+            victimCoord
+        ];
+
+        // Route 3: Heavy Traffic, More Signals (Red)
+        const route3Coords = [
+            hospitalCoord,
+            { lat: 18.5234, lng: 73.8799 }, // Pune Station
+            { lat: 18.5255, lng: 73.8920 }, // Ghorpadi
+            { lat: 18.5360, lng: 73.9050 }, // Kalyani Nagar South
+            victimCoord
+        ];
+
+        let signalsData = [];
+        let segments = [];
+        let totalDistance = 0; // in meters
+        
+        // Global State
+        let simInterval = null;
+        let progressDistance = 0; 
+        let geminiPlan = null;
+        let currentLeg = 'OUTBOUND'; // 'OUTBOUND' or 'INBOUND'
+        let activeRouteCoords = [];
+        let rejectedLayers = []; // Track layers to remove later
+
+        // --- Audio System (HTML5 Audio) ---
+        function startSiren() {
+            const sirenAudio = document.getElementById('sirenAudio');
+            if (sirenAudio) {
+                // Play audio and catch potential browser autoplay restrictions
+                sirenAudio.play().catch(e => console.log("Audio play blocked (user interaction required):", e));
+            }
+        }
+
+        function stopSiren() {
+            const sirenAudio = document.getElementById('sirenAudio');
+            if (sirenAudio) {
+                sirenAudio.pause();
+            }
+        }
+
+        // DOM Elements
+        const logsContainer = document.getElementById('logsContainer');
+        const driverAlert = document.getElementById('driver-alert');
+
+        function initMap() {
+            // Initialize Leaflet Map over Pune
+            map = L.map('map', { zoomControl: false }).setView([18.5400, 73.8900], 14);
+            
+            // Standard OpenStreetMap for a Real Map View
+            currentTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19
+            }).addTo(map);
+
+            const svgPin = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512" width="28" height="42"><path fill="#ea4335" stroke="#fff" stroke-width="15" d="M172.268 501.67C26.97 291.031 0 269.413 0 192 0 85.961 85.961 0 192 0s192 85.961 192 192c0 77.413-26.97 99.031-172.268 309.67-9.535 13.774-29.93 13.773-39.464 0zM192 272c44.183 0 80-35.817 80-80s-35.817-80-80-80-80 35.817-80 80 35.817 80 80 80z"/></svg>`;
+
+            // Add Standard Location Marker for Hospital
+            L.marker([hospitalCoord.lat, hospitalCoord.lng], {
+                icon: L.divIcon({
+                    className: 'custom-pin',
+                    html: svgPin,
+                    iconSize: [28, 42],
+                    iconAnchor: [14, 42]
+                })
+            }).addTo(map);
+
+            // Add Standard Location Marker for Victim
+            L.marker([victimCoord.lat, victimCoord.lng], {
+                icon: L.divIcon({
+                    className: 'custom-pin',
+                    html: svgPin,
+                    iconSize: [28, 42],
+                    iconAnchor: [14, 42]
+                })
+            }).addTo(map);
+
+            // Add Ambulance Marker (hidden initially)
+            const ambIcon = L.divIcon({
+                className: 'amb-icon-wrapper',
+                html: `<div class="amb-icon-container" id="amb-body">
+                         <div class="amb-cross">+</div><div class="siren"></div>
+                       </div>`,
+                iconSize: [40, 20],
+                iconAnchor: [20, 10]
+            });
+            ambMarker = L.marker([hospitalCoord.lat, hospitalCoord.lng], { icon: ambIcon }).addTo(map);
+            ambMarker.setOpacity(0);
+        }
+
+        // --- Logging Utility ---
+        function addLog(msg, type = 'info') {
+            const div = document.createElement('div');
+            div.className = 'log-entry';
+            const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false });
+            
+            let typeClass = 'log-info';
+            if (type === 'success') typeClass = 'log-success';
+            if (type === 'warn') typeClass = 'log-warn';
+            if (type === 'err') typeClass = 'log-err';
+
+            div.innerHTML = `<span class="log-time">[${timeStr}]</span> <span class="${typeClass}">${msg}</span>`;
+            logsContainer.appendChild(div);
+            logsContainer.scrollTop = logsContainer.scrollHeight;
+        }
+
+        // --- Gemini API Call with Exponential Backoff ---
+        async function fetchGeminiTrafficPlan(retries = 5) {
+            const prompt = `You are a Traffic Orchestration AI in Pune. Evaluate 3 routes from Ruby Hall to Kalyani Nagar:
+            Route 1: Heavy traffic.
+            Route 2: Moderate traffic (yellow), but 2 minutes longer.
+            Route 3: Heavy traffic, many signals.
+            Select Route 2 because moderate traffic is easier to manage for a green corridor.
+            Return ONLY raw JSON:
+            {
+              "analysis": "Short text analyzing the 3 routes",
+              "selectedRoute": 2,
+              "signals": [{"id":"S1","congestion":40},{"id":"S2","congestion":55},{"id":"S3","congestion":35},{"id":"S4","congestion":45}]
+            }`;
+
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { responseMimeType: "application/json" }
+            };
+
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            let delay = 1000;
+
+            for (let i = 0; i < retries; i++) {
+                try {
+                    if (!apiKey) throw new Error("No API Key");
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const data = await response.json();
+                    return JSON.parse(data.candidates[0].content.parts[0].text);
+                } catch (error) {
+                    if (i === retries - 1 || !apiKey) {
+                        return {
+                            analysis: "Route 1 & 3 show heavy, unmanageable congestion. Route 2 (Yellow) is +2 mins longer but has fluid traffic. System overriding to Route 2.",
+                            selectedRoute: 2,
+                            signals: [
+                                { id: "S1", congestion: 45 }, { id: "S2", congestion: 50 },
+                                { id: "S3", congestion: 40 }, { id: "S4", congestion: 35 }
+                            ]
+                        };
+                    }
+                    await new Promise(r => setTimeout(r, delay));
+                    delay *= 2;
+                }
+            }
+        }
+
+        function buildSegments(coords) {
+            segments = [];
+            totalDistance = 0;
+            for (let i = 0; i < coords.length - 1; i++) {
+                const start = L.latLng(coords[i].lat, coords[i].lng);
+                const end = L.latLng(coords[i+1].lat, coords[i+1].lng);
+                const dist = start.distanceTo(end);
+                segments.push({ start, end, dist, startDist: totalDistance });
+                totalDistance += dist;
+            }
+        }
+
+        // --- Helper functions for drawing custom split routes and dots ---
+        function getPointAtDistance(coords, targetDist) {
+            let traveled = 0;
+            for (let i = 0; i < coords.length - 1; i++) {
+                const p1 = L.latLng(coords[i].lat, coords[i].lng);
+                const p2 = L.latLng(coords[i+1].lat, coords[i+1].lng);
+                const dist = p1.distanceTo(p2);
+                if (traveled + dist >= targetDist) {
+                    const ratio = (targetDist - traveled) / dist;
+                    const lat = p1.lat + (p2.lat - p1.lat) * ratio;
+                    const lng = p1.lng + (p2.lng - p1.lng) * ratio;
+                    return { lat, lng, index: i };
+                }
+                traveled += dist;
+            }
+            return { lat: coords[coords.length - 1].lat, lng: coords[coords.length - 1].lng, index: coords.length - 2 };
+        }
+
+        function drawSplitRoute(coords, splitRatio, color1, color2) {
+            let totalD = 0;
+            for (let i = 0; i < coords.length - 1; i++) {
+                totalD += L.latLng(coords[i].lat, coords[i].lng).distanceTo(L.latLng(coords[i+1].lat, coords[i+1].lng));
+            }
+            const splitDist = totalD * splitRatio;
+            const splitPoint = getPointAtDistance(coords, splitDist);
+            
+            let part1 = [], part2 = [];
+            for (let i = 0; i < coords.length; i++) {
+                if (i <= splitPoint.index) part1.push(coords[i]);
+                if (i === splitPoint.index) {
+                    part1.push({lat: splitPoint.lat, lng: splitPoint.lng});
+                    part2.push({lat: splitPoint.lat, lng: splitPoint.lng});
+                }
+                if (i > splitPoint.index) part2.push(coords[i]);
+            }
+            
+            const l1 = L.polyline(part1.map(c=>[c.lat,c.lng]), { color: color1, weight: 6, opacity: 0.8 }).addTo(map);
+            const l2 = L.polyline(part2.map(c=>[c.lat,c.lng]), { color: color2, weight: 6, opacity: 0.8 }).addTo(map);
+            return [l1, l2];
+        }
+
+        function drawDots(coords, count) {
+            let totalD = 0;
+            for (let i = 0; i < coords.length - 1; i++) {
+                totalD += L.latLng(coords[i].lat, coords[i].lng).distanceTo(L.latLng(coords[i+1].lat, coords[i+1].lng));
+            }
+            let dots = [];
+            for (let i = 1; i <= count; i++) {
+                const targetDist = totalD * (i / (count + 1));
+                const pt = getPointAtDistance(coords, targetDist);
+                const dot = L.circleMarker([pt.lat, pt.lng], {
+                    color: '#fff',
+                    weight: 1.5,
+                    fillColor: '#000',
+                    fillOpacity: 1,
+                    radius: 5
+                }).addTo(map);
+                dots.push(dot);
+            }
+            return dots;
+        }
+
+        // --- Pre-flight Sequence ---
+        async function startEmergencyWorkflow() {
+            
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('route-status').innerText = 'AI ANALYZING ROUTES...';
+            document.getElementById('route-status').style.color = 'var(--hud-cyan)';
+            
+            logsContainer.innerHTML = '';
+            progressDistance = 0;
+            currentLeg = 'OUTBOUND';
+            ambMarker.setOpacity(0);
+            rejectedLayers = [];
+            
+            addLog("Emergency Triggered. Scanning Pune traffic grid...", "info");
+
+            // Draw Route 1: 3/4 Red, 1/4 Blue, 3 Black Dots
+            const r1Lines = drawSplitRoute(route1Coords, 0.75, '#ff4d4d', '#007bff');
+            const r1Dots = drawDots(route1Coords, 3);
+            rejectedLayers.push(...r1Lines, ...r1Dots);
+            
+            // Draw Route 2: Moderate Traffic (Yellow)
+            routeLine2 = L.polyline(route2Coords.map(c=>[c.lat,c.lng]), { color: '#ffcc00', weight: 6, opacity: 0.8 }).addTo(map);
+            
+            // Draw Route 3: Half Blue, Half Red, 8 Black Dots
+            const r3Lines = drawSplitRoute(route3Coords, 0.5, '#007bff', '#ff4d4d');
+            const r3Dots = drawDots(route3Coords, 8);
+            rejectedLayers.push(...r3Lines, ...r3Dots);
+
+            addLog("Route 1 (Red/Blue): Heavy Traffic with 3 signals.", "err");
+            addLog("Route 2 (Yellow): Moderate Traffic, +2 mins.", "warn");
+            addLog("Route 3 (Blue/Red): Complex Traffic with 8 signals.", "err");
+            
+            geminiPlan = await fetchGeminiTrafficPlan();
+            addLog(`AI Decision: ${geminiPlan.analysis}`, "success");
+            
+            setTimeout(() => {
+                // Fade out rejected routes and their dots
+                rejectedLayers.forEach(layer => map.removeLayer(layer));
+                
+                // Solidify chosen route into the active corridor
+                map.removeLayer(routeLine2);
+                activeRouteCoords = [...route2Coords];
+                activeRouteLine = L.polyline(activeRouteCoords.map(c=>[c.lat,c.lng]), { color: '#39ff14', weight: 8, opacity: 0.8 }).addTo(map);
+                
+                initializeSignals();
+                
+                ambMarker.setLatLng([activeRouteCoords[0].lat, activeRouteCoords[0].lng]);
+                ambMarker.setOpacity(1);
+                
+                addLog("Route 2 locked. Activating Green Corridor Outbound.", "success");
+                startSimulation();
+            }, 2500);
+        }
+
+        function initializeSignals() {
+            // Clear old signals
+            signalsData.forEach(sig => {
+                if (sig.marker) map.removeLayer(sig.marker);
+            });
+            signalsData = [];
+            buildSegments(activeRouteCoords);
+
+            // Place signals at intermediate points along the route
+            let cumulativeDist = 0;
+            for (let i = 0; i < activeRouteCoords.length - 1; i++) {
+                const start = L.latLng(activeRouteCoords[i].lat, activeRouteCoords[i].lng);
+                const end = L.latLng(activeRouteCoords[i+1].lat, activeRouteCoords[i+1].lng);
+                
+                if (i > 0) { 
+                    let sigId = `S${i}`;
+                    let congestion = geminiPlan ? (geminiPlan.signals.find(s=>s.id === sigId)?.congestion || 40) : 40;
+                    
+                    signalsData.push({
+                        id: sigId,
+                        lat: start.lat,
+                        lng: start.lng,
+                        distanceOnPath: cumulativeDist,
+                        marker: null,
+                        state: 'red', // Options: red, yellow, green
+                        alerted: false
+                    });
+                }
+                cumulativeDist += start.distanceTo(end);
+            }
+
+            // Draw Signals
+            signalsData.forEach(sig => {
+                const icon = L.divIcon({
+                    className: 'custom-signal-wrapper',
+                    html: `<div class="signal-icon-container" id="icon-${sig.id}"></div>
+                           <div class="signal-label-popup">${sig.id} (${sig.congestion}% Traf)</div>`,
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10]
+                });
+                sig.marker = L.marker([sig.lat, sig.lng], { icon }).addTo(map);
+            });
+        }
+
+        function setSignalColor(sig, color) {
+            const el = sig.marker.getElement();
+            if(el) {
+                const icon = el.querySelector('.signal-icon-container');
+                if(icon) {
+                    icon.classList.remove('green', 'yellow');
+                    if (color !== 'red') icon.classList.add(color);
+                }
+            }
+        }
+
+        // --- Core Simulation Engine ---
+        function startSimulation() {
+            document.getElementById('route-status').innerText = currentLeg === 'OUTBOUND' ? 'GREEN CORRIDOR: OUTBOUND' : 'GREEN CORRIDOR: INBOUND';
+            document.getElementById('route-status').style.color = 'var(--neon-green)';
+
+            startSiren(); // Start the siren sound
+
+            const baseSpeed = 55; // Increased slightly for a better pace, but not too fast
+
+            simInterval = setInterval(() => {
+                if (progressDistance >= totalDistance) {
+                    clearInterval(simInterval);
+                    handleLegComplete();
+                    return;
+                }
+
+                let currentSpeed = baseSpeed + (Math.random() * 10 - 5); // Smoother speed variations
+                if (Math.random() < 0.05) {
+                    currentSpeed -= 15; // Proportional delay for slower speed
+                    addLog(`[AI Control] Delay detected. Adjusting phase timings.`, "warn");
+                }
+
+                progressDistance += currentSpeed;
+                if (progressDistance > totalDistance) progressDistance = totalDistance;
+                
+                updateAmbulancePos(progressDistance);
+                monitorTrafficEngine();
+
+            }, 1000);
+        }
+
+        function handleLegComplete() {
+            stopSiren(); // Silence the siren when arrived
+            
+            if (currentLeg === 'OUTBOUND') {
+                addLog("Arrived at Victim Location. Commencing Pickup...", "success");
+                document.getElementById('route-status').innerText = 'PICKUP IN PROGRESS';
+                document.getElementById('route-status').style.color = '#fff';
+                
+                // Wait briefly for pickup, then reverse course
+                setTimeout(() => {
+                    addLog("Pickup complete. Initiating return to Hospital.", "info");
+                    currentLeg = 'INBOUND';
+                    progressDistance = 0;
+                    
+                    // Reverse route coordinates for the return trip and rebuild segments 
+                    // (We do not touch the signals here, they stay green)
+                    activeRouteCoords.reverse();
+                    buildSegments(activeRouteCoords);
+                    
+                    startSimulation();
+                }, 4000);
+            } else {
+                addLog("Arrived at Hospital. Patient Delivered.", "success");
+                addLog("Green Corridor deactivated. Signals returning to normal.", "info");
+                document.getElementById('route-status').innerText = 'MISSION ACCOMPLISHED';
+                document.getElementById('route-status').style.color = '#fff';
+                document.getElementById('startBtn').disabled = false;
+                
+                // Remove green path
+                if (activeRouteLine) map.removeLayer(activeRouteLine);
+
+                // Restore all signals to completely normal (red)
+                signalsData.forEach(sig => {
+                    sig.state = 'red';
+                    setSignalColor(sig, 'red');
+                });
+            }
+        }
+
+        // --- Positioning Logic using Coordinates ---
+        function updateAmbulancePos(distance) {
+            let traveled = 0;
+            let currentSeg = segments[segments.length-1];
+            
+            for(let i=0; i < segments.length; i++) {
+                if (distance <= traveled + segments[i].dist) {
+                    currentSeg = segments[i];
+                    break;
+                }
+                traveled += segments[i].dist;
+            }
+
+            let ratio = (distance - traveled) / currentSeg.dist;
+            ratio = Math.max(0, Math.min(1, ratio));
+
+            const lat = currentSeg.start.lat + (currentSeg.end.lat - currentSeg.start.lat) * ratio;
+            const lng = currentSeg.start.lng + (currentSeg.end.lng - currentSeg.start.lng) * ratio;
+
+            ambMarker.setLatLng([lat, lng]);
+
+            const dy = currentSeg.end.lat - currentSeg.start.lat;
+            const dx = currentSeg.end.lng - currentSeg.start.lng;
+            const angle = Math.atan2(dy, dx) * 180 / Math.PI; 
+            
+            const ambBody = document.getElementById('amb-body');
+            if (ambBody) {
+                ambBody.style.transform = `rotate(${-angle}deg)`;
+            }
+        }
+
+        // --- Traffic Orchestration Logic ---
+        function monitorTrafficEngine() {
+            // Driver Alert Warning (Proximity check applies inbound and outbound)
+            signalsData.forEach(sig => {
+                // Calculate distance based on inbound/outbound context
+                let sigDist = currentLeg === 'OUTBOUND' ? sig.distanceOnPath : (totalDistance - sig.distanceOnPath);
+                let dist = sigDist - progressDistance;
+                
+                if (dist > 0 && dist < 300 && !sig.alerted) {
+                    sig.alerted = true;
+                    triggerDriverAlert(`🚑 Approaching ${sig.id} – Move LEFT`);
+                }
+            });
+
+            // Signal State Logic only triggers on OUTBOUND trip (they stay green for INBOUND)
+            if (currentLeg === 'INBOUND') return;
+
+            let s1 = signalsData[0];
+            let s2 = signalsData[1];
+
+            // 1. Approaching Signal 1: Turn Red -> Yellow -> Green
+            if (s1 && s1.state === 'red') {
+                const distToS1 = s1.distanceOnPath - progressDistance;
+                if (distToS1 > 0 && distToS1 < 800) {
+                    s1.state = 'yellow';
+                    setSignalColor(s1, 'yellow');
+                    addLog(`AI Override: Signal ${s1.id} transitioning RED -> YELLOW.`, "warn");
+                    
+                    setTimeout(() => {
+                        // Ensure it hasn't somehow been reset
+                        if (s1.state === 'yellow') {
+                            s1.state = 'green';
+                            setSignalColor(s1, 'green');
+                            addLog(`AI Override: Signal ${s1.id} forced GREEN.`, "success");
+                        }
+                    }, 1500); // 1.5 second yellow phase
+                }
+            }
+
+            // 2. Halfway to Signal 2: Turn Signal 2 Green
+            if (s1 && s2 && s2.state === 'red') {
+                const halfwayDist = s1.distanceOnPath + (s2.distanceOnPath - s1.distanceOnPath) / 2;
+                if (progressDistance >= halfwayDist) {
+                    s2.state = 'green';
+                    setSignalColor(s2, 'green');
+                    addLog(`AI Override: Signal ${s2.id} forced GREEN (Halfway point reached).`, "success");
+                }
+            }
+
+            // 3. Leaving Signal 2: Signal 3, 4, ... n simultaneously turn Green
+            if (s2 && progressDistance >= s2.distanceOnPath) {
+                let triggeredMultiple = false;
+                for (let i = 2; i < signalsData.length; i++) {
+                    let sig = signalsData[i];
+                    if (sig.state === 'red') {
+                        sig.state = 'green';
+                        setSignalColor(sig, 'green');
+                        triggeredMultiple = true;
+                    }
+                }
+                if (triggeredMultiple) {
+                    addLog(`Global Wave: Ambulance passed ${s2.id}. Signals S3 to Sn turned GREEN simultaneously.`, "success");
+                }
+            }
+        }
+
+        function triggerDriverAlert(msg) {
+            driverAlert.innerText = msg;
+            driverAlert.style.opacity = '1';
+            driverAlert.classList.add('alert-anim');
+            setTimeout(() => {
+                driverAlert.style.opacity = '0';
+                driverAlert.classList.remove('alert-anim');
+            }, 3000);
+        }
+
+        // Init Map on Load
+        window.onload = initMap;
+
+    </script>
+</body>
+</html>
