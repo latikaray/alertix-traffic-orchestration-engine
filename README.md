@@ -26,6 +26,11 @@ These inefficiencies directly impact **life-saving response time**.
 
 ## 💡 Our Solution – Alertix
 
+<img width="1903" height="802" alt="ClearanceNotifications" src="https://github.com/user-attachments/assets/7959e711-fd98-4994-8d0a-0ba2536c944d" />
+<img width="1907" height="808" alt="DarkMode" src="https://github.com/user-attachments/assets/06b965ef-a426-4fa6-9636-a9bab7840844" />
+<img width="1908" height="815" alt="GreenCorridor" src="https://github.com/user-attachments/assets/7dafbd68-f3a9-4096-91ca-07df8f5ff185" />
+
+
 We developed **Alertix**, a system that:
 
 - Detects accidents and triggers alerts  
@@ -53,6 +58,9 @@ To solve this, we designed the **Traffic Orchestration Engine (TOE)**.
 ---
 
 ## ⚙️ How TOE Works
+
+<img width="1114" height="1920" alt="InShot_20260416_142900812" src="https://github.com/user-attachments/assets/5b01a1b0-c344-4551-bb2f-adb6c57b578a" />
+
 
 ### 1️⃣ Ambulance Assignment
 
